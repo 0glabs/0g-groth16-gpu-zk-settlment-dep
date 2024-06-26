@@ -1,18 +1,17 @@
 use crate::{r1cs_to_qap::R1CSToQAP, Groth16, ProvingKey, Vec, VerifyingKey};
 use ark_ec::{pairing::Pairing, scalar_mul::fixed_base::FixedBase, CurveGroup, Group};
 use ark_ff::{Field, PrimeField, UniformRand, Zero};
-use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
+use ark_poly::EvaluationDomain;
 use ark_relations::r1cs::{
     ConstraintSynthesizer, ConstraintSystem, OptimizationGoal, Result as R1CSResult,
     SynthesisError, SynthesisMode,
 };
-use ark_std::rand::Rng;
-use ark_std::{cfg_into_iter, cfg_iter};
+use ark_std::{cfg_into_iter, cfg_iter, rand::Rng};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
+impl<E: Pairing, D: EvaluationDomain<E::ScalarField>, QAP: R1CSToQAP> Groth16<E, D, QAP> {
     /// Generates a random common reference string for
     /// a circuit using the provided R1CS-to-QAP reduction.
     #[inline]
@@ -43,7 +42,8 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         )
     }
 
-    /// Create parameters for a circuit, given some toxic waste, R1CS to QAP calculator and group generators
+    /// Create parameters for a circuit, given some toxic waste, R1CS to QAP
+    /// calculator and group generators
     pub fn generate_parameters_with_qap<C>(
         circuit: C,
         alpha: E::ScalarField,
@@ -57,8 +57,6 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     where
         C: ConstraintSynthesizer<E::ScalarField>,
     {
-        type D<F> = GeneralEvaluationDomain<F>;
-
         let setup_time = start_timer!(|| "Groth16::Generator");
         let cs = ConstraintSystem::new_ref();
         cs.set_optimization_goal(OptimizationGoal::Constraints);
@@ -73,8 +71,8 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         cs.finalize();
         end_timer!(lc_time);
 
-        // Following is the mapping of symbols from the Groth16 paper to this implementation
-        // l -> num_instance_variables
+        // Following is the mapping of symbols from the Groth16 paper to this
+        // implementation l -> num_instance_variables
         // m -> qap_num_variables
         // x -> t
         // t(x) - zt
@@ -95,7 +93,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         let reduction_time = start_timer!(|| "R1CS to QAP Instance Map with Evaluation");
         let num_instance_variables = cs.num_instance_variables();
         let (a, b, c, zt, qap_num_variables, m_raw) =
-            QAP::instance_map_with_evaluation::<E::ScalarField, D<E::ScalarField>>(cs, &t)?;
+            QAP::instance_map_with_evaluation::<E::ScalarField, D>(cs, &t)?;
         end_timer!(reduction_time);
 
         // Compute query densities
@@ -172,7 +170,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
             scalar_bits,
             g1_window,
             &g1_table,
-            &QAP::h_query_scalars::<_, D<E::ScalarField>>(m_raw - 1, t, zt, delta_inverse)?,
+            &QAP::h_query_scalars::<_, D>(m_raw - 1, t, zt, delta_inverse)?,
         );
 
         end_timer!(h_time);

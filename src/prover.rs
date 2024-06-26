@@ -1,24 +1,24 @@
-use crate::{r1cs_to_qap::R1CSToQAP, Groth16, Proof, ProvingKey, VerifyingKey};
+use crate::{
+    gpu::GpuVariableBaseMSM, r1cs_to_qap::R1CSToQAP, Groth16, Proof, ProvingKey, VerifyingKey,
+};
 use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup, Group, VariableBaseMSM};
 use ark_ff::{Field, PrimeField, UniformRand, Zero};
-use ark_poly::GeneralEvaluationDomain;
+use ark_poly::EvaluationDomain;
 use ark_relations::r1cs::{
     ConstraintMatrices, ConstraintSynthesizer, ConstraintSystem, OptimizationGoal,
     Result as R1CSResult,
 };
-use ark_std::rand::Rng;
 use ark_std::{
     cfg_into_iter, cfg_iter,
     ops::{AddAssign, Mul},
+    rand::Rng,
     vec::Vec,
 };
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-type D<F> = GeneralEvaluationDomain<F>;
-
-impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
+impl<E: Pairing, D: EvaluationDomain<E::ScalarField>, QAP: R1CSToQAP> Groth16<E, D, QAP> {
     /// Create a Groth16 proof using randomness `r` and `s` and
     /// the provided R1CS-to-QAP reduction, using the provided
     /// R1CS constraint matrices.
@@ -34,7 +34,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     ) -> R1CSResult<Proof<E>> {
         let prover_time = start_timer!(|| "Groth16::Prover");
         let witness_map_time = start_timer!(|| "R1CS to QAP witness map");
-        let h = QAP::witness_map_from_matrices::<E::ScalarField, D<E::ScalarField>>(
+        let h = QAP::witness_map_from_matrices::<E::ScalarField, D>(
             matrices,
             num_inputs,
             num_constraints,
@@ -63,7 +63,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         let h_assignment = cfg_into_iter!(h)
             .map(|s| s.into_bigint())
             .collect::<Vec<_>>();
-        let h_acc = E::G1::msm_bigint(&pk.h_query, &h_assignment);
+        let h_acc = E::G1::msm_bigint_gpu(&pk.h_query, &h_assignment);
         drop(h_assignment);
 
         // Compute C
@@ -71,7 +71,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
             .map(|s| s.into_bigint())
             .collect::<Vec<_>>();
 
-        let l_aux_acc = E::G1::msm_bigint(&pk.l_query, &aux_assignment);
+        let l_aux_acc = E::G1::msm_bigint_gpu(&pk.l_query, &aux_assignment);
 
         let r_s_delta_g1 = pk
             .delta_g1
@@ -202,7 +202,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         end_timer!(lc_time);
 
         let witness_map_time = start_timer!(|| "R1CS to QAP witness map");
-        let h = QAP::witness_map::<E::ScalarField, D<E::ScalarField>>(cs.clone())?;
+        let h = QAP::witness_map::<E::ScalarField, D>(cs.clone())?;
         end_timer!(witness_map_time);
 
         let prover = cs.borrow().unwrap();
@@ -220,16 +220,17 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         Ok(proof)
     }
 
-    /// Given a Groth16 proof, returns a fresh proof of the same statement. For a proof π of a
-    /// statement S, the output of the non-deterministic procedure `rerandomize_proof(π)` is
-    /// statistically indistinguishable from a fresh honest proof of S. For more info, see theorem 3 of
-    /// [\[BKSV20\]](https://eprint.iacr.org/2020/811)
+    /// Given a Groth16 proof, returns a fresh proof of the same statement. For
+    /// a proof π of a statement S, the output of the non-deterministic
+    /// procedure `rerandomize_proof(π)` is statistically indistinguishable
+    /// from a fresh honest proof of S. For more info, see theorem 3 of [\[BKSV20\]](https://eprint.iacr.org/2020/811)
     pub fn rerandomize_proof(
         vk: &VerifyingKey<E>,
         proof: &Proof<E>,
         rng: &mut impl Rng,
     ) -> Proof<E> {
-        // These are our rerandomization factors. They must be nonzero and uniformly sampled.
+        // These are our rerandomization factors. They must be nonzero and uniformly
+        // sampled.
         let (mut r1, mut r2) = (E::ScalarField::zero(), E::ScalarField::zero());
         while r1.is_zero() || r2.is_zero() {
             r1 = E::ScalarField::rand(rng);
@@ -263,7 +264,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         G::Group: VariableBaseMSM<MulBase = G>,
     {
         let el = query[0];
-        let acc = G::Group::msm_bigint(&query[1..], assignment);
+        let acc = G::Group::msm_bigint_gpu(&query[1..], assignment);
 
         let mut res = initial;
         res.add_assign(&el);

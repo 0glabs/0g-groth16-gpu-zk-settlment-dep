@@ -1,14 +1,9 @@
+#![feature(min_specialization)]
 //! An implementation of the [`Groth16`] zkSNARK.
 //!
 //! [`Groth16`]: https://eprint.iacr.org/2016/260.pdf
 #![cfg_attr(not(feature = "std"), no_std)]
-#![warn(
-    unused,
-    future_incompatible,
-    nonstandard_style,
-    rust_2018_idioms,
-    missing_docs
-)]
+#![warn(unused, future_incompatible, nonstandard_style, rust_2018_idioms)]
 #![allow(clippy::many_single_char_names, clippy::op_ref)]
 #![forbid(unsafe_code)]
 
@@ -34,6 +29,8 @@ pub mod prover;
 /// Verify proofs for the Groth16 zkSNARK construction.
 pub mod verifier;
 
+pub mod gpu;
+
 /// Constraints for the Groth16 verifier.
 #[cfg(feature = "r1cs")]
 pub mod constraints;
@@ -42,21 +39,31 @@ pub mod constraints;
 mod test;
 
 pub use self::data_structures::*;
+#[allow(unused_imports)]
 pub use self::{generator::*, prover::*, verifier::*};
+
+#[cfg(feature = "cuda")]
+pub use ag_cuda_ec::{init_global_workspace, init_local_workspace};
 
 use ark_crypto_primitives::snark::*;
 use ark_ec::pairing::Pairing;
+use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
 use ark_relations::r1cs::{ConstraintSynthesizer, SynthesisError};
-use ark_std::rand::RngCore;
-use ark_std::{marker::PhantomData, vec::Vec};
+use ark_std::{marker::PhantomData, rand::RngCore, vec::Vec};
 use r1cs_to_qap::{LibsnarkReduction, R1CSToQAP};
 
 /// The SNARK of [[Groth16]](https://eprint.iacr.org/2016/260.pdf).
-pub struct Groth16<E: Pairing, QAP: R1CSToQAP = LibsnarkReduction> {
-    _p: PhantomData<(E, QAP)>,
+pub struct Groth16<
+    E: Pairing,
+    D: EvaluationDomain<E::ScalarField> = GeneralEvaluationDomain<<E as Pairing>::ScalarField>,
+    QAP: R1CSToQAP = LibsnarkReduction,
+> {
+    _p: PhantomData<(E, D, QAP)>,
 }
 
-impl<E: Pairing, QAP: R1CSToQAP> SNARK<E::ScalarField> for Groth16<E, QAP> {
+impl<E: Pairing, D: EvaluationDomain<E::ScalarField>, QAP: R1CSToQAP> SNARK<E::ScalarField>
+    for Groth16<E, D, QAP>
+{
     type ProvingKey = ProvingKey<E>;
     type VerifyingKey = VerifyingKey<E>;
     type Proof = Proof<E>;
@@ -96,4 +103,7 @@ impl<E: Pairing, QAP: R1CSToQAP> SNARK<E::ScalarField> for Groth16<E, QAP> {
     }
 }
 
-impl<E: Pairing, QAP: R1CSToQAP> CircuitSpecificSetupSNARK<E::ScalarField> for Groth16<E, QAP> {}
+impl<E: Pairing, D: EvaluationDomain<E::ScalarField>, QAP: R1CSToQAP>
+    CircuitSpecificSetupSNARK<E::ScalarField> for Groth16<E, D, QAP>
+{
+}

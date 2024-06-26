@@ -24,7 +24,6 @@ impl<E: Pairing> Default for Proof<E> {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
 
 /// A verification key in the Groth16 SNARK.
 #[derive(Clone, Debug, PartialEq, CanonicalSerialize, CanonicalDeserialize)]
@@ -37,7 +36,8 @@ pub struct VerifyingKey<E: Pairing> {
     pub gamma_g2: E::G2Affine,
     /// The `delta * H`, where `H` is the generator of `E::G2`.
     pub delta_g2: E::G2Affine,
-    /// The `gamma^{-1} * (beta * a_i + alpha * b_i + c_i) * H`, where `H` is the generator of `E::G1`.
+    /// The `gamma^{-1} * (beta * a_i + alpha * b_i + c_i) * H`, where `H` is
+    /// the generator of `E::G1`.
     pub gamma_abc_g1: Vec<E::G1Affine>,
 }
 
@@ -90,7 +90,6 @@ impl<E: Pairing> Default for PreparedVerifyingKey<E> {
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
 /// The prover key for for the Groth16 zkSNARK.
