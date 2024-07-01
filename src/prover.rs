@@ -185,7 +185,6 @@ impl<E: Pairing, D: EvaluationDomain<E::ScalarField>, QAP: R1CSToQAP> Groth16<E,
         C: ConstraintSynthesizer<E::ScalarField>,
         QAP: R1CSToQAP,
     {
-        let prover_time = start_timer!(|| "Groth16::Prover");
         let cs = ConstraintSystem::new_ref();
 
         // Set the optimization goal
@@ -197,9 +196,11 @@ impl<E: Pairing, D: EvaluationDomain<E::ScalarField>, QAP: R1CSToQAP> Groth16<E,
         debug_assert!(cs.is_satisfied().unwrap());
         end_timer!(synthesis_time);
 
-        let lc_time = start_timer!(|| "Inlining LCs");
-        cs.finalize();
-        end_timer!(lc_time);
+        // let lc_time = start_timer!(|| "Inlining LCs");
+        // cs.finalize();
+        // end_timer!(lc_time);
+
+        let prover_time = start_timer!(|| "Groth16::Prover");
 
         let witness_map_time = start_timer!(|| "R1CS to QAP witness map");
         let h = QAP::witness_map::<E::ScalarField, D>(cs.clone())?;
