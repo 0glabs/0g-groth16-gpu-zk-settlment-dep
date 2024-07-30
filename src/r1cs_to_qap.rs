@@ -156,10 +156,10 @@ impl R1CSToQAP for LibsnarkReduction {
         num_constraints: usize,
         full_assignment: &[F],
     ) -> R1CSResult<Vec<F>> {
+        let zero = F::zero();
         let domain =
             D::new(num_constraints + num_inputs).ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
         let domain_size = domain.size();
-        let zero = F::zero();
 
         let mut a = vec![zero; domain_size];
         let mut b = vec![zero; domain_size];
@@ -169,8 +169,8 @@ impl R1CSToQAP for LibsnarkReduction {
             .zip(cfg_iter!(&matrices.a))
             .zip(cfg_iter!(&matrices.b))
             .for_each(|(((a, b), at_i), bt_i)| {
-                *a = evaluate_constraint(&at_i, &full_assignment);
-                *b = evaluate_constraint(&bt_i, &full_assignment);
+                *a = evaluate_constraint(at_i, full_assignment);
+                *b = evaluate_constraint(bt_i, full_assignment);
             });
 
         {
@@ -179,38 +179,40 @@ impl R1CSToQAP for LibsnarkReduction {
             a[start..end].clone_from_slice(&full_assignment[..num_inputs]);
         }
 
+        let mut c = vec![zero; domain_size];
+        cfg_iter_mut!(c[..num_constraints])
+            .zip(&a)
+            .zip(&b)
+            .for_each(|((c_i, &a), &b)| {
+                *c_i = a * b;
+            });
+
         domain.ifft_in_place(&mut a);
         domain.ifft_in_place(&mut b);
 
-        let coset_domain = domain.get_coset(F::GENERATOR).unwrap();
+        let root_of_unity = {
+            let domain_size_double = 2 * domain_size;
+            let domain_double =
+                D::new(domain_size_double).ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
+            domain_double.element(1)
+        };
+        D::distribute_powers_and_mul_by_const(&mut a, root_of_unity, F::one());
+        D::distribute_powers_and_mul_by_const(&mut b, root_of_unity, F::one());
 
-        coset_domain.fft_in_place(&mut a);
-        coset_domain.fft_in_place(&mut b);
+        domain.fft_in_place(&mut a);
+        domain.fft_in_place(&mut b);
 
         let mut ab = domain.mul_polynomials_in_evaluation_domain(&a, &b);
         drop(a);
         drop(b);
 
-        let mut c = vec![zero; domain_size];
-        cfg_iter_mut!(c[..num_constraints])
-            .enumerate()
-            .for_each(|(i, c)| {
-                *c = evaluate_constraint(&matrices.c[i], &full_assignment);
-            });
-
         domain.ifft_in_place(&mut c);
-        coset_domain.fft_in_place(&mut c);
+        D::distribute_powers_and_mul_by_const(&mut c, root_of_unity, F::one());
+        domain.fft_in_place(&mut c);
 
-        let vanishing_polynomial_over_coset = domain
-            .evaluate_vanishing_polynomial(F::GENERATOR)
-            .inverse()
-            .unwrap();
-        cfg_iter_mut!(ab).zip(c).for_each(|(ab_i, c_i)| {
-            *ab_i -= &c_i;
-            *ab_i *= &vanishing_polynomial_over_coset;
-        });
-
-        coset_domain.ifft_in_place(&mut ab);
+        cfg_iter_mut!(ab)
+            .zip(c)
+            .for_each(|(ab_i, c_i)| *ab_i -= &c_i);
 
         Ok(ab)
     }
